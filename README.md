@@ -40,8 +40,7 @@
 ## What This Does
 
 <!-- Three or four sentences: what a user asks for, and what they get back. -->
-The user enters a query describing clothing let's say a T-shirt or Jeans, optionally with size and price-limit. The system searches the one-of-a-kind second-hand listings and finds the best or most related match. It additinally looks into the user's wardrobe, if one exists, and suggest outfit that pair and suits with the one they already own, and finally writes a short fit-card caption mentioning the item, its price, and the platform. If nothing matches then it stops and asks the user to change their search instead.
-
+The user enters a query describing a piece of clothing, say a T-shirt or jeans, optionally with a size and a price limit. The system searches the one-of-a-kind second-hand listings and finds the best match. It additionally looks at the user's wardrobe, if one exists, and suggests outfits that pair the find with pieces they already own, and finally writes a short fit-card caption mentioning the item, its price, and the platform. If nothing matches, it stops and tells the user what to change in their search instead.
 
 ---
 
@@ -60,7 +59,7 @@ The user enters a query describing clothing let's say a T-shirt or Jeans, option
 ### `search_listings`
 
 - **What it does:** Filters the listings by size and price, scores what's left by keyword overlap with the description, and returns the best matches.
-- **Inputs:** `description` (`str`), `size` (`str` or `None`, default `None` = no size filter), `max_price` (`float` or `None`, inclusive — a listing priced exactly at `max_price` is kept; default `None` = no price filter; `0` is a real limit, not "no filter")
+- **Inputs:** `description` (`str`), `size` (`str` or `None`, default `None` = no size filter), `max_price` (`float` or `None`, inclusive: a listing priced exactly at `max_price` is kept; default `None` = no price filter; `0` is a real limit, not "no filter")
 - **Size match:** case-insensitive, by whole size rather than substring. A listing's size is split on `/` and spaces, with notes in brackets dropped. It matches when it covers every size asked for. So `M` matches `M`, `S/M` and `M/L`; `W30` matches `W30 L30`; a bare number like `8.5` means `US 8.5`. But `S` never matches `US 9`, and `L` never matches `XL`.
 - **Returns:** every listing that matches at least one query keyword (score ≥ 1), sorted by score descending, and on a tie, listings in a size written inside `description` (e.g. "graphic tee size M") come first; that size only reorders results, it doesn't filter them. At most 10. Score = one point per distinct query keyword found among the listing's words, where the listing's words are taken from `title`, `description` and `category` (lowercased, split on non-alphanumerics) plus each entry of `style_tags` and `colors`; stop words (filler like "the", "with", request words like "looking", and price/size words like "under", "size") are dropped from both sides first. The fields of the dict includes: `id`, `title`, `description`, `category`, `style_tags`, `size`, `condition`, `price`, `colors`, `brand`, and `platform`
 - **When it has nothing:** `[]` when the size or price filter leaves no listings, or when no remaining listing matches any keyword after stop words are removed (including an empty `description`), i.e, never `None`, never an exception.
@@ -98,9 +97,23 @@ The user enters a query describing clothing let's say a T-shirt or Jeans, option
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** Regex, with no model call, in `agent.py::_parse_request`. It pulls out three values and stores them in `session["parsed"]`:
+- `max_price` (`float` or `None`): from a price phrase: "under", "below", "less than", "max", "up to" or "at most" followed by a number, or a bare `$N` (e.g. "under $30" → `30.0`). That phrase is then removed from the text. `None` when the query has no price, never `0`, because `0` is a real limit in my spec.
+- `size` (`str` or `None`): taken from what's left by `_parse_query` in `tools.py`, the same size patterns the search uses ("M", "S/M", "W30", "US 8", "size 8.5", "one size").
+- `description` (`str`): the remaining words, joined. Stop words are left in; `search_listings` drops them itself.
 
-**What moves through the session:** <!-- which fields, in what order -->
+Example: `'vintage graphic tee under $30, size M'` → `{'description': 'vintage graphic tee', 'size': 'M', 'max_price': 30.0}`.
+
+**What moves through the session:** each step writes its result into the session, and the next step reads its input back out of the session, never straight from the previous call. In order:
+1. `query`: what the user typed (set by `new_session`).
+2. `parsed`: `{description, size, max_price}` from `_parse_request(session["query"])`.
+3. `search_results`: the list from `search_listings`, called with the three values read from `session["parsed"]`.
+4. **Branch:** if `search_results` is empty, `error` gets a fixed message from `_no_results_message` naming what to change (size, price limit, or wording), and the run returns. `selected_item`, `outfit_input_id`, `outfit_suggestion`, `fit_card_input_id` and `fit_card` all stay `None`.
+5. `selected_item`: `search_results[0]`.
+6. `outfit_input_id` and `outfit_suggestion`: `_styled(session, session["selected_item"])` records the `id` of the item it actually passes to `suggest_outfit` (with `session["wardrobe"]`), then stores the suggestion.
+7. `fit_card_input_id` and `fit_card`: `_captioned(session, session["outfit_suggestion"], session["selected_item"])` records the `id` of the item it actually passes to `create_fit_card`, then stores the caption.
+
+`selected_item["id"] == outfit_input_id == fit_card_input_id` on every matching run is what criterion 3 checks.
 
 ---
 
@@ -113,16 +126,33 @@ The user enters a query describing clothing let's say a T-shirt or Jeans, option
 
 **One full query**
 
-```
-$ python app.py ask '...'
+*A query that matches: all three tools run and values move through the session.*
 
+Command:
+```bash
+python app.py ask 'tan leather shoulder bag under $40'
+```
+
+Output:
+```text
+  Found:    Mini Shoulder Bag — Tan Leather — $38.0 on poshmark
+
+  Outfit:   Look-1: The mini tan leather shoulder bag paired with the white ribbed tank top, wide-leg khaki trousers, and chunky white sneakers for a fresh, minimal, and effortless daytime look that plays beautifully with earth tones.
+
+Look-2: A chic, casual streetwear-inspired outfit featuring the mini tan leather shoulder bag layered with the oversized grey crewneck sweatshirt and baggy straight-leg jeans in dark wash, finished with chunky white sneakers.
+
+Look-3: An edgy yet classic combination of the mini tan leather shoulder bag, the black cropped zip hoodie paired with the wide-leg khaki trousers, and black combat boots for a stylish contrast between grungy footwear and a polished vintage bag.
+
+  Fit card: Pair this little tan leather bag with a white ribbed tank top and wide-leg khaki trousers for an effortless daytime look. It adds the right vintage touch to a casual street outfit with an oversized grey crewneck and dark wash jeans too. I managed to score it on Poshmark for $38, and it holds all my essentials while keeping things minimal.
+
+2 model calls this session, 1555 prompt + 210 output tokens
 ```
 
 **The three tools, tested one at a time**
 
 ### 1. `search_listings`
 
-**Test 1a — a query that matches**
+**Test 1a: a query that matches**
 
 Command:
 ```bash
@@ -134,7 +164,7 @@ Output:
 6 [('lst_002', 'Y2K Baby Tee — Butterfly Print', 18.0), ('lst_006', 'Graphic Tee — 2003 Tour Bootleg Style', 24.0), ('lst_017', 'Mesh Long-Sleeve Top — Black', 15.0), ('lst_033', 'Vintage Band Tee — Faded Grey', 19.0), ('lst_011', 'Low-Rise Cargo Pants — Khaki', 27.0), ('lst_015', 'Vintage Graphic Hoodie — Faded Black', 26.0)]
 ```
 
-**Test 1b — empty case (nothing matches)**
+**Test 1b: empty case (nothing matches)**
 
 Command:
 ```bash
@@ -148,7 +178,7 @@ Output:
 
 ### 2. `suggest_outfit`
 
-**Test 2a — with the example wardrobe**
+**Test 2a: with the example wardrobe**
 
 Command:
 ```bash
@@ -162,7 +192,7 @@ Look-1: Vintage Levi's 501 Jeans paired with the white ribbed tank top, layered 
 Look-2: Vintage Levi's 501 Jeans paired with the oversized grey crewneck sweatshirt, black combat boots, the brown leather belt, and the black crossbody bag for a cozy, vintage-inspired casual outfit.
 ```
 
-**Test 2b — empty case (empty wardrobe)**
+**Test 2b: empty case (empty wardrobe)**
 
 Command:
 ```bash
@@ -180,7 +210,7 @@ Look-3: A black fitted ribbed turtleneck paired with the vintage denim jeans, la
 
 ### 3. `create_fit_card`
 
-**Test 3a — with a real outfit**
+**Test 3a: with a real outfit**
 
 Command:
 ```bash
@@ -192,7 +222,7 @@ Output:
 The classic medium indigo wash on these vintage Levi's immediately caught my eye with its perfect, broken-in fade. I locked this pair down on Depop for $38 and wear them with crisp white sneakers for an effortless streetwear vibe. They also look great dressed down with the same sneakers for running errands.
 ```
 
-**Test 3b — empty case (empty outfit)**
+**Test 3b: empty case (empty outfit)**
 
 Command:
 ```bash

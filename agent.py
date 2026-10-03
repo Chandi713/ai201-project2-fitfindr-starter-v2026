@@ -44,7 +44,93 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "outfit_suggestion": None,   # what suggest_outfit returned
         "fit_card": None,            # what create_fit_card returned
         "error": None,               # set when the run ended early
+        "outfit_input_id": None,     # id of the item actually passed to suggest_outfit
+        "fit_card_input_id": None,   # id of the item actually passed to create_fit_card
     }
+
+
+# ── query parsing ─────────────────────────────────────────────────────────────
+
+def _parse_request(query: str) -> dict:
+    """
+    Split what the user typed into the three inputs search_listings takes.
+
+    Regex, no model call:
+      • max_price — "under $30", "below 40", "max $25.50", "less than $50",
+                    "up to $20", or a bare "$30". None when there isn't one
+                    (not 0 — 0 is a real limit in my spec).
+      • size      — pulled out by _parse_query in tools.py ("M", "W30",
+                    "US 8", "size 8.5", "S/M"…). None when there isn't one.
+      • description — whatever words are left.
+
+    'vintage graphic tee under $30, size M'
+        → {'description': 'vintage graphic tee', 'size': 'M', 'max_price': 30.0}
+    """
+    import re
+    from tools import _parse_query
+
+    PRICE_RE = re.compile(
+        r"(?:\b(?:under|below|less\s+than|max(?:imum)?|up\s+to|at\s+most)\s*\$?\s*"
+        r"|\$\s*)(\d+(?:\.\d+)?)",
+        re.IGNORECASE,
+    )
+
+    max_price = None
+    text = query
+    match = PRICE_RE.search(text)
+    if match:
+        max_price = float(match.group(1))
+        text = text[:match.start()] + " " + text[match.end():]
+
+    words, size = _parse_query(text)
+    return {
+        "description": " ".join(words),
+        "size": size,
+        "max_price": max_price,
+    }
+
+
+def _no_results_message(parsed: dict) -> str:
+    """
+    The fixed message for an empty search, built from what the user asked for.
+
+    Written in code, not by the model, so it's there every time and always
+    names something the user can change: the size, the price ceiling, or the
+    words.
+    """
+    if not parsed["description"].strip():
+        return ("Your search didn't say what kind of item you want, so there was "
+                "nothing to match. Add the item, e.g. \"tee size M\" or "
+                "\"denim jacket under $50\".")
+
+    asked = parsed["description"]
+    suggestions = []
+    if parsed["size"]:
+        suggestions.append(f"drop the size or try a different one (you asked for {parsed['size']})")
+    if parsed["max_price"] is not None:
+        suggestions.append(f"raise your price limit above ${parsed['max_price']:g}")
+    suggestions.append("use fewer or more general words, e.g. the type of item "
+                       "(\"dress\", \"jacket\", \"tee\") instead of a specific style")
+    tips = "\n".join(f"  • {s}" for s in suggestions)
+    return f"No listings matched \"{asked}\". To find something, try:\n{tips}"
+
+
+# ── tool hand-offs ────────────────────────────────────────────────────────────
+# Criterion 3 asks whether the item search found is the item each tool
+# received. These two record the id from the very argument they pass on, so the
+# recorded id and the tool's input can't drift apart: if run_agent ever passed
+# the wrong item, the recorded id would stop matching session["selected_item"].
+
+def _styled(session: dict, item: dict) -> str:
+    """Call suggest_outfit with `item`, recording which item it received."""
+    session["outfit_input_id"] = item["id"]
+    return suggest_outfit(item, session["wardrobe"])
+
+
+def _captioned(session: dict, outfit: str, item: dict) -> str:
+    """Call create_fit_card with `item`, recording which item it received."""
+    session["fit_card_input_id"] = item["id"]
+    return create_fit_card(outfit, item)
 
 
 # ── planning loop ─────────────────────────────────────────────────────────────
@@ -106,9 +192,47 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         than a stack trace. The import is already at the top of this file.
     """
     session = new_session(query, wardrobe)
+    steps = 0
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    # Step 1 — parse the query into description / size / max_price
+    steps += 1
+    trace.check_iterations(steps)
+    session["parsed"] = _parse_request(session["query"])
+
+    # Step 2 — search, reading the inputs back out of the session
+    steps += 1
+    trace.check_iterations(steps)
+    parsed = session["parsed"]
+    session["search_results"] = search_listings(
+        parsed["description"],
+        size=parsed["size"],
+        max_price=parsed["max_price"],
+    )
+
+    # THE BRANCH — nothing found: say what to change and stop before suggest_outfit
+    if not session["search_results"]:
+        session["error"] = _no_results_message(parsed)
+        return session
+
+    # Step 3 — pick the best match
+    steps += 1
+    trace.check_iterations(steps)
+    session["selected_item"] = session["search_results"][0]
+
+    # Step 4 — style it. _styled records the id of the item it actually hands
+    # to suggest_outfit (criterion 3).
+    steps += 1
+    trace.check_iterations(steps)
+    session["outfit_suggestion"] = _styled(session, session["selected_item"])
+
+    # Step 5 — write the caption, reading both inputs back out of the session.
+    # _captioned records the id of the item it actually hands to create_fit_card.
+    steps += 1
+    trace.check_iterations(steps)
+    session["fit_card"] = _captioned(
+        session, session["outfit_suggestion"], session["selected_item"]
+    )
+
     return session
 
 

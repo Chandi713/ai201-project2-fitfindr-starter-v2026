@@ -245,17 +245,17 @@ No outfit suggestion provided (The model FAILED to generate an outfit suggestion
      "I gave Claude my search_listings spec. It returned None on no match
      instead of an empty list, so I changed it" is the level we want. -->
 
-**Moment 1**
+**Moment 1: turning my tool logic into code**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* After using Claude to get an overview of the task and a flow diagram of which modules call which and when the model is called, I worked out the logic for the tool stubs myself, and asked code to put down the basic regex and parsing code. I then asked Claude to turn the removing stopwords logic into code so I could move quickly and keep my focus on the main logic.
+- *What came back:* Working code, but with constraints and conditions I hadn't asked for, and a few of my own conditions changed, either added by Claude or from it misreading my wording.
+- *What I changed:* I reviewed the code against my logic, removed the constraints I didn't need, and adjusted the conditions that had drifted from what I described, then kept refining them as testing showed what each tool actually needed.
 
-**Moment 2**
+**Moment 2: wording my criteria and formatting the README**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked Claude to rephrase my own wording in the README and `criteria.md` into clear, concise explanations, keeping my reasoning as it was, and to keep the README well formatted so a reader could take in each section at a glance.
+- *What came back:* Text that kept blending Claude's own logic into my reasoning, so several criteria reasons no longer said what I meant. For example, for criterion 5 it justified the 5 of 5 target by claiming the wardrobe had "basics that go with almost anything", when my point was that any wardrobe should work; I removed that. It also rearranged the README's default structure.
+- *What I changed:* For some statements I explained my point again so Claude could correct them; for others I had it use my wording exactly; and the rest I wrote out myself, step by step, so they conveyed my understanding precisely. I also rewrote the reason for criterion 5's 5 of 5 target. Claude had defended 5 of 5 as a "deliberately low bar" and floated 4 of 5 to match my other model-based criteria; I explained that 5 of 5 is required, not lenient, because suggesting outfits from the user's own wardrobe is the feature's promise, so a single miss means the feature isn't working. For the structure, I started again from a fresh copy of the README and told Claude not to change its structure at all, only to format my answers inside the existing sections.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 

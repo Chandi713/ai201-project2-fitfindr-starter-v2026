@@ -120,19 +120,88 @@ $ python app.py ask '...'
 
 **The three tools, tested one at a time**
 
-```
-$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+### 1. `search_listings`
 
+**Test 1a — a query that matches**
+
+Command:
+```bash
+python -c "from tools import search_listings; r = search_listings('graphic tee', max_price=30); print(len(r), [(x['id'], x['title'], x['price']) for x in r])"
 ```
 
+Output:
+```text
+6 [('lst_002', 'Y2K Baby Tee — Butterfly Print', 18.0), ('lst_006', 'Graphic Tee — 2003 Tour Bootleg Style', 24.0), ('lst_017', 'Mesh Long-Sleeve Top — Black', 15.0), ('lst_033', 'Vintage Band Tee — Faded Grey', 19.0), ('lst_011', 'Low-Rise Cargo Pants — Khaki', 27.0), ('lst_015', 'Vintage Graphic Hoodie — Faded Black', 26.0)]
 ```
-$ python -c "from tools import suggest_outfit; ..."
 
+**Test 1b — empty case (nothing matches)**
+
+Command:
+```bash
+python -c "from tools import search_listings; print(search_listings('designer ballgown', size='XXS', max_price=5))"
 ```
 
+Output:
+```text
+[]
 ```
-$ python -c "from tools import create_fit_card; ..."
 
+### 2. `suggest_outfit`
+
+**Test 2a — with the example wardrobe**
+
+Command:
+```bash
+python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+```
+
+Output:
+```text
+Look-1: Vintage Levi's 501 Jeans paired with the white ribbed tank top, layered with the vintage black denim jacket, chunky white sneakers, and the black crossbody bag for a classic, effortless streetwear look.
+
+Look-2: Vintage Levi's 501 Jeans paired with the oversized grey crewneck sweatshirt, black combat boots, the brown leather belt, and the black crossbody bag for a cozy, vintage-inspired casual outfit.
+```
+
+**Test 2b — empty case (empty wardrobe)**
+
+Command:
+```bash
+python -c "from tools import suggest_outfit; from utils.data_loader import get_empty_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_empty_wardrobe()))"
+```
+
+Output:
+```text
+Look-1: A look consisting of the Vintage Levi's 501 Jeans paired with a crisp white button-down shirt tucked in, a classic brown leather belt, a pair of tan suede loafers, and a minimalist silver wristwatch for a timeless, smart-casual aesthetic.
+
+Look-2: A cozy oatmeal-colored crewneck sweater layered over a white t-shirt (with the hem peeking out), worn with the medium wash Levi's, clean white leather sneakers, and a vintage brown leather messenger bag for an effortless, charming weekend look.
+
+Look-3: A black fitted ribbed turtleneck paired with the vintage denim jeans, layered with a tailored camel trench coat, classic black leather ankle boots, and a matching black leather crossbody bag for a chic, sophisticated urban vibe.
+```
+
+### 3. `create_fit_card`
+
+**Test 3a — with a real outfit**
+
+Command:
+```bash
+python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
+```
+
+Output:
+```text
+The classic medium indigo wash on these vintage Levi's immediately caught my eye with its perfect, broken-in fade. I locked this pair down on Depop for $38 and wear them with crisp white sneakers for an effortless streetwear vibe. They also look great dressed down with the same sneakers for running errands.
+```
+
+**Test 3b — empty case (empty outfit)**
+
+Command:
+```bash
+python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('', load_listings()[0]))"
+```
+
+Output:
+```text
+No outfit suggestion provided (The model FAILED to generate an outfit suggestion) — try again.
 ```
 
 ---

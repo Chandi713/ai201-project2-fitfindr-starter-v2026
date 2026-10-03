@@ -21,11 +21,73 @@ the description has to say what is *in* the list.
 """
 
 import config  # noqa: F401 — you'll use this in search_listings
+import random
 from generate import generate
 from utils.data_loader import load_listings
 
 
 # ── Tool 1: search_listings ───────────────────────────────────────────────────
+
+
+
+
+def _parse_query(query: str) -> tuple[list[str], str | None]:
+    import re
+
+    LETTER = r"(?:xxs|xs|s|m|l|xl|xxl)"
+
+    # Checked in this order; the first one that matches is
+    SIZE_PATTERNS = [
+        re.compile(r"\b(?:size\s+)?(w\d+(?:\s*l\d+)?)\b"),
+        re.compile(r"\b(?:size\s+)?(us\s*\d+(?:\.\d+)?)(?!\.?\d)"),
+        re.compile(r"\bsize\s+(\d+(?:\.\d+)?)(?!\.?\d)"),
+        re.compile(r"\b(one\s+size)\b"),
+        re.compile(rf"\b(?:size\s+)?({LETTER}/{LETTER})\b"),
+        re.compile(r"\b(?:size\s+)?(xxs|xs|xl|xxl)\b"),
+        re.compile(r"(?:^|(?<=\s))(?:size\s+)?([sml])(?=[\s,.;!?]|$)"),
+    ]
+    WORD_RE  = re.compile(r"[a-z0-9]+")
+
+    text = query.lower()
+
+    size = None
+    for pattern in SIZE_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            size = match.group(1).upper()
+            text = text[:match.start()] + " " + text[match.end():]
+            break
+
+    # 3. split what's left into words and drop stop words and one-letter leftovers
+    words = [w for w in WORD_RE.findall(text) if len(w) > 1]
+
+    return (words, size)
+
+
+def _size_tokens(size: str) -> set[str]:
+    """
+    Break a size into the sizes it covers: "S/M" → {"s", "m"}, "W30 L30" →
+    {"w30", "l30"}, "US 8.5" → {"us8.5"}, "XL (oversized)" → {"xl"}.
+
+    A bare number is read as a US shoe size, so "8.5" → {"us8.5"}.
+    """
+    import re
+
+    text = re.sub(r"\(.*?\)", " ", size.lower())   # drop notes like "(oversized)"
+    text = re.sub(r"\bus\s+", "us", text)           # "us 8.5" → "us8.5"
+    tokens = set(re.split(r"[/\s]+", text.strip())) - {""}
+    return {"us" + t if re.fullmatch(r"\d+(?:\.\d+)?", t) else t for t in tokens}
+
+
+def _size_matches(wanted: str, listing_size: str) -> bool:
+    """
+    True when every size in `wanted` is one the listing covers, so "M" matches
+    "S/M" and "W30" matches "W30 L30", but "S" doesn't match "US 9" and "L"
+    doesn't match "XL".
+    """
+    wanted_tokens = _size_tokens(wanted)
+    return bool(wanted_tokens) and wanted_tokens <= _size_tokens(listing_size)
+
 
 def search_listings(
     description: str,
@@ -79,10 +141,68 @@ def search_listings(
         python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
     """
     # TODO: replace this with your implementation
-    return []
+    import re
+    import itertools
+    STOPWORDS = {
+        # filler found in the listings and in queries
+        "a", "an", "the", "and", "or", "but", "in", "on", "at", "for", "with",
+        "to", "of", "from", "some", "no", "be", "can", "very", "like",
+        "i", "me", "my", "is", "it", "that", "this", "any", "please",
+
+        # request words
+        "looking", "want", "need", "find", "show", "get", "something",
+
+        # price and size words (the values are already saved separately)
+        "under", "below", "less", "than", "max", "up", "around", "budget", "cheap",
+        "size", "one", "fit", "fits",
+    }
+    listings = load_listings()
+    if max_price is not None:
+        listings = [listing for listing in listings if listing['price'] <= max_price]
+
+    if size:
+        listings = [listing for listing in listings if _size_matches(size, listing['size'])]
+
+    
+
+    words, found_size = _parse_query(description)
+    words = set(w for w in words if w not in STOPWORDS)
+
+    # score each listing without adding fields to it: (score, size_match, listing)
+    scored = []
+    for listing in listings:
+        combined_text = listing['title'] + ' ' + listing['description'] + ' ' + listing['category']
+        listing_words = re.findall(r"[a-z0-9]+", combined_text.lower())
+        listing_words.extend(item.lower() for item in itertools.chain(listing["style_tags"], listing["colors"]))
+        listing_words = set(w for w in listing_words if w not in STOPWORDS)
+        score = len(words.intersection(listing_words))
+        size_match = bool(found_size) and _size_matches(found_size, listing["size"])
+        # keep every listing that scored at least one point
+        if score > 0:
+            scored.append((score, size_match, listing))
+
+    # highest score first; on a tie, the listing in the size asked for comes first
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [listing for _, _, listing in scored[:config.SEARCH_RESULT_LIMIT]]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
+
+def _clean_wardrobe(wardrobe: dict) -> dict:
+    """
+    Return a copy of the wardrobe with only the fields the model needs.
+
+    Drops each item's 'id' (the model echoes it back to the user) and drops
+    'notes' when it's None. The input wardrobe is left untouched.
+    """
+    cleaned_items = []
+    for item in wardrobe['items']:
+        cleaned = {k: v for k, v in item.items() if k != 'id'}
+        if cleaned.get('notes') is None:
+            cleaned.pop('notes', None)
+        cleaned_items.append(cleaned)
+    return {'items': cleaned_items}
+
 
 def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     """
@@ -112,11 +232,81 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
     """
-    # TODO: replace this with your implementation
-    return ""
+
+    if wardrobe.get('items'):
+        cleaned_wardrobe = _clean_wardrobe(wardrobe)
+        prompt = f"""
+        Role: You are a fashion expert and have a good sense of styling. You very well understand what colors suit each other, what outfit gives a decent, subtle, and charming look. You can clearly pick which trouser or pant will suit a specific kind of shirt along with shoes and accessories.
+
+        Task: You are given an item and its specifications listed in form of dictionary (contains fields like: category, style_tags, colors, etc.) from the listings on a thrift platform {new_item}, along with it you are given a set of items in the wardrobe {cleaned_wardrobe['items']}. Your task is to suggest an entire outfit (or a look) considering the new item and picking up the complementing item(s) from the user's wardrobe. **No need to consider the whole wardrobe in the suggestions, just pick up the items that are relevant to the new item.**
+            Example: 
+                New item: A white shirt with a green floral (leaves) print on it.
+                User's wardrobe: A black t-shirt, a blue jeans, a pair of brown shoes, a black cap, a white shorts, a red t-shirt, a dark-green slides (flip-flops), an orange trouser, a pair of black sunglasses, a pair of brown boots, a blue baggy jeans, a pair of black sneakers.
+
+        Output: A string output with your suggestions for the outfit(s) (No specific format, could be a paragraph, could be partitioned into multiple looks, etcetera):
+            Look-1: A look consisting of a white shirt with a green floral (leaves) print on it, paired with white shorts, dark-green slides (flip-flops), and classic black sunglasses for a fresh, relaxed look.
+
+            Look-2: A black t-shirt layered with the white shirt with a green floral (leaves) print on it, paired with blue baggy jeans, a pair of brown shoes, a black cap, and a pair of sunglasses for a casual, party vibe.
+
+            Look-3: . . . and so on.
+            .
+            .
+            .
+
+        Note: Make sure to suggest at least one outfit, and return only the suggestion string, nothing else. Do not include any kind of instructions, irrelevant text, or comments.
+        """
+        response = generate(prompt)
+    else:
+        prompt = f"""
+        Role: You are a fashion expert and have a good sense of styling. You very well understand what colors suit each other, what outfit gives a decent, subtle, and charming look. You can clearly pick which trouser or pant will suit a specific kind of shirt along with shoes and accessories.
+
+        Task: You are given an item and its specifications listed in form of dictionary (contains fields like: category, style_tags, colors, etc.) from the listings on a thrift platform {new_item},  Your task is to suggest an entire outfit (or a look) considering the new item for a decent, classy, and elegant look.
+            Example: New item: A white shirt with a green floral (leaves) print on it.
+
+        Output: A string output with your suggestions for the outfit(s) (No specific format, could be a paragraph, could be partitioned into multiple looks, etcetera):
+            Look-1: A look consisting of a white shirt with a green floral (leaves) print on it, paired with white shorts, dark-green slides (flip-flops), and classic black sunglasses for a fresh, relaxed look.
+
+            Look-2: A black t-shirt layered with the white shirt with a green floral (leaves) print on it, paired with blue baggy jeans, a pair of brown shoes, a black cap, and a pair of sunglasses for a casual, party vibe.
+            
+            Look-3: . . . and so on.
+            .
+            .
+            .
+        
+        Note: Make sure to suggest at least one outfit, and return only the suggestion string, nothing else. Do not include any kind of instructions, irrelevant text, or comments.
+        """
+        response = generate(prompt)
+    return (response or "").strip() or "Couldn't generate an outfit suggestion — try again."
+
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
+
+def _format_price(price) -> str:
+    """
+    Drop the decimals only when they're all zeros: 75.0 → "75", 12.5 → "12.5".
+    """
+    if isinstance(price, float) and price.is_integer():
+        return str(int(price))
+    return str(price)
+
+
+def _combine_looks(outfit: str) -> str:
+    """
+    Turn "Look-1: abc\\nLook-2: def\\nLook-3: lds" into "abc. def. lds."
+
+    If the outfit has no "Look-N:" labels, it comes back unchanged.
+    """
+    import re
+
+    # matches "Look-1:", "Look 1:", and the bold "**Look-1:**"
+    label = r"\**Look[-\s]?\d+\**:\**"
+    if not re.search(label, outfit):
+        return outfit.strip()
+
+    looks = [look.strip().rstrip(".") for look in re.split(label, outfit)]
+    return " ".join(look + "." for look in looks if look)
+
 
 def create_fit_card(outfit: str, new_item: dict) -> str:
     """
@@ -153,4 +343,60 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
         python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
     """
     # TODO: replace this with your implementation
-    return ""
+    if outfit.strip() == "Couldn't generate an outfit suggestion — try again." or outfit.strip() == "":
+        return "No outfit suggestion provided (The model FAILED to generate an outfit suggestion) — try again."
+
+    # "$24", not "24" — a bare number next to denim reads as a size
+    price = "$" + _format_price(new_item['price'])
+    outfit = _combine_looks(outfit)
+
+    # most listings have no brand — only mention one when it's actually there
+    brand = (new_item.get('brand') or "").strip()
+    brand_detail = f"\n    - Brand: {brand}" if brand else ""
+    brand_rule = "\n    - Mention the brand once." if brand else ""
+
+    # a different opening each call, so the captions don't all start the same way
+    opening = random.choice([
+        "your first reaction to wearing it",
+        "the vibe or mood of the outfit",
+        "the occasion you'd wear it to",
+        "a styling tip",
+        "what caught your eye about the colour or texture",
+        "a short question to your followers",
+        "a short story about the item",
+       "an incident related to the item"
+    ])
+
+    prompt = f"""
+    Role: You are a fashion creator posting about a thrift find you just bought. Your captions are short, specific, and sound like a real person sharing an outfit, not a product listing or an ad.
+
+    Task: Write a caption for the item below, styled with the outfit below.
+
+    Item details:
+    - Item: {new_item['title']}
+    - Category: {new_item['category']}
+    - Colors: {', '.join(new_item['colors'])}
+    - Style: {', '.join(new_item['style_tags'])}
+    - Price: {price} (price in $)
+    - Platform: {new_item['platform']}{brand_detail}
+
+    Outfit: {outfit}
+
+    Rules:
+    - Open with {opening}.
+    - Do NOT start with "Scored", "Found", "Snagged", "Just got", "Obsessed", or any "I got this for $X on..." opener.
+    - Mention the price and the platform once each, but not in the first sentence.
+    - Write the price exactly as {price}, in digits with the $ sign, never in words.{brand_rule}
+    - Call the item by a natural name (e.g. "this cream linen blazer"), never the listing title word for word.
+    - Describe at most two looks from the outfit, without labels like "Look-1".
+    - Don't invent details about the item's history or past owners.
+
+    Output: 2-4 sentences, 60-70 words in total. Only use pieces from the item and the outfit above.
+
+    Additional Context: Use it only if the details above aren't enough to make the caption specific.
+        {new_item['description']}
+
+    Note: Return only the caption, nothing else. No instructions, comments, or quotation marks around it.
+    """
+    response = generate(prompt)
+    return (response or "").strip() or "Couldn't generate a caption — try again."

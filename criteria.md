@@ -25,9 +25,21 @@ Given a query that matches at least one listing, the agent completes all three
 tool calls and returns a fit card — in at least 4 of 5 tries.
 
 **Why this target:**
-<!-- Why 4 of 5 and not 5 of 5? Something about your search, probably —
-     "my search is a plain keyword match and some phrasings will miss" is a
-     real answer. -->
+My planned design has two weak points. First, `search_listings` will score
+listings by keyword overlap, not by meaning. Before scoring, it will take the
+size out of the description (e.g. "M"), drop stop words ("under", "size",
+"looking", "something") and strip punctuation. A query built mostly from those
+words can be left with no keywords, or only with words no listing contains, so
+every listing scores 0, the search returns `[]`, and the loop stops at the empty
+branch even though the data has an item that fits — a vague query like
+"size M" is the case I expect to miss. Second, `suggest_outfit` and
+`create_fit_card` will both call the model. If `suggest_outfit` gets a blank
+reply, my spec has it return a fallback message, and `create_fit_card` then
+returns an error message instead of a caption, so no fit card is produced; a
+rate limit that outlasts the retries in `generate.py` could also end a run.
+I expect both to be uncommon, so 4 of 5 is realistic: 5 of 5 would assume
+perfect parsing and a perfectly reliable model, while two or more misses would
+point to a real bug, which a 3 of 5 target would excuse.
 
 ---
 
@@ -37,66 +49,101 @@ Given a query that matches no listings, the agent stops before calling
 `suggest_outfit` and returns a message naming what to change — 5 of 5 tries.
 
 **Why this target:**
-<!-- Why is 5 of 5 reasonable here when criterion 1 isn't? What's different
-     about this path? -->
+This path will never call the model. `search_listings` will be plain Python
+filtering a fixed file, with no randomness, so the same query will return the
+same result on every run. For an impossible query like "designer ballgown size
+XXS under $5", it should return `[]` for two independent reasons: no listing in
+the data costs $5 or less (the cheapest is $12), so the price filter removes
+everything, and no listing contains "designer" or "ballgown", so nothing would
+score above 0 anyway. The branch in `run_agent` will be a single check on that
+empty list: it will write a fixed message (not model-generated) into
+`session["error"]` telling the user what to change, and return before
+`suggest_outfit` is called. With nothing on this path depending on the model or
+on chance, any failed try would be a bug in my code, so anything below 5 of 5
+would excuse a real defect.
 
 ---
 
-## 3. Something about state
+## 3. The item search found is the item the next two tools receive
 
-<!-- YOU WRITE THIS ONE.
-
-     How would you know that the item your search found is the same item the
-     next tool received? Name something countable or observable.
-
-     This is the criterion people find hardest, because state failure doesn't
-     look like state failure — it looks like a tool problem. Something that
-     compares session["selected_item"] against what actually reached
-     suggest_outfit is the shape you're after. -->
-
-
+Given a query that returns at least one listing, the selected item's id remains identical across session["selected_item"], session["outfit_input_id"], and session["fit_card_input_id"] (each recorded at the moment suggest_outfit and create_fit_card are called) — in 5 of 5 tries.
 
 **Why this target:**
+In my design the item will move from one tool to the next only through my code
+reading `session["selected_item"]` and passing it on; the model will play no
+part in the hand-off.
 
+I will compare ids rather than titles or whole dicts because every listing has an
+`id` field and all 40 ids in `data/listings.json` are distinct. Two listings
+can share words in their titles, but no two share an id, so matching ids mean
+the same listing, and a different id means a different listing reached the
+tool. That makes it a single value anyone can read off the printed session and
+compare by eye. `run_agent` will record each id from the same variable it
+passes to the tool, so the recorded value shows what the tool actually received
+rather than what the session claims.
 
+Reading a value from a dict has no randomness, so the result should be
+identical on every run. Any mismatch would be a bug in `run_agent` — passing a
+different search result, a stale variable, or a re-searched item — not bad
+luck. A target lower than 5 of 5 would let a run where the wrong item reached a
+tool still count as passing, which would hide exactly the bug this criterion is
+meant to catch.
 
 ---
 
-## 4. Something about the fit card
+## 4. Each fit card is a postable caption, and no two start the same way
 
-<!-- YOU WRITE THIS ONE.
-
-     The fit card calls a model, so the same input can produce different words
-     each time. That's not a bug — it's the nature of the tool. So what would
-     make it acceptable?
-
-     Think about what you'd actually be unhappy to see. A caption that never
-     mentions the price? Two different items producing the same opening
-     sentence? A card longer than a caption anyone would post? Any of those can
-     be turned into a number. -->
-
-
+ Given 5 different items whose queries return results, each fit-card states the item's price exactly once as $ digits (e.g. $24), names its platform exactly once, and contains 2 to 4 sentences under 80 words, with all three conditions met in at least 4 of 5 tries. Across the same 5 cards, each first sentence is unique.
 
 **Why this target:**
-
-
+A card passes only if several conditions hold at once — price once as `$`
+digits, platform once, and 2–4 sentences under 80 words — and all of them
+depend on the model following the prompt. The caption will be the only output
+written entirely by the model, at temperature 0.9, so it can occasionally slip
+(write the price in words, repeat it, or run past 80 words) however carefully
+the prompt is worded. That is why I didn't pick 5 of 5. I didn't go lower than
+4 of 5 because my design does part of the work in code before the model sees
+anything: `create_fit_card` will format the price as `$` digits itself and
+state every rule explicitly in the prompt, so more than one slip in five would
+mean the prompt is broken, not unlucky. For the openings, the tool will pick a
+random opening style for each call and each item gives the model different
+details, so two identical first sentences across 5 different items would mean
+the prompt is producing a template. I use 5 different items because the
+starter's cache returns identical text for identical prompts, which would fail
+that check for the wrong reason.
 
 ---
 
-## 5. Your choice
+## 5. A non-empty wardrobe is actually used in the outfit suggestion
 
-<!-- YOU WRITE THIS ONE TOO.
-
-     Pick something you actually care about getting right. Speed, the empty
-     wardrobe path, what happens when the model can't be reached, whether the
-     search respects a price ceiling — anything, as long as it names a number
-     or an observable outcome. -->
-
-
+Given a query that matches at least one listing and a non-empty wardrobe, the agent returns an outfit suggestion that includes at least one existing wardrobe item (named exactly or by a close paraphrase — same type of piece and same colour) alongside the selected listing — in 5 of 5 tries.
 
 **Why this target:**
+The point of passing a wardrobe to `suggest_outfit` is to get an outfit built
+around pieces the user already owns. If a non-empty wardrobe is passed and not
+a single one of its items appears in the suggestion, the tool is behaving
+exactly as it would with an empty wardrobe, and passing the wardrobe makes no
+sense.
 
+I ask for at least one wardrobe item rather than all of them because not every
+piece the user owns will complement the selected item. Forcing the model to
+use the whole wardrobe would push it into vague or random combinations that
+make no sense in real life — orange trousers with a purple shirt, for example.
+So my prompt will tell the model to pick only the wardrobe pieces that suit the
+new item. Once at least one owned piece is in the outfit, the model is free to
+use more of them if they fit, or to add general pieces from outside the
+wardrobe to complete a good look. One item is the minimum that shows the
+wardrobe was actually used.
 
+I chose 5 of 5 because using the wardrobe is the feature this tool promises:
+every query that comes with a non-empty wardrobe must get something out of it,
+otherwise there is no point in having a wardrobe at all. Making sure that
+happens is a design responsibility, not model variation — my prompt will
+explicitly require at least one wardrobe piece in the outfit. Whatever the
+wardrobe holds, it is the model's job to pick a piece and build the rest of the
+look around it — with other wardrobe items or general pieces — so that the
+combination makes sense. Missing on even one query would therefore be a bug in how the feature
+is built, not bad luck, and a 4 of 5 target would excuse it.
 
 ---
 

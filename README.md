@@ -40,7 +40,7 @@
 ## What This Does
 
 <!-- Three or four sentences: what a user asks for, and what they get back. -->
-
+The user enters a query describing clothing let's say a T-shirt or Jeans, optionally with size and price-limit. The system searches the one-of-a-kind second-hand listings and finds the best or most related match. It additinally looks into the user's wardrobe, if one exists, and suggest outfit that pair and suits with the one they already own, and finally writes a short fit-card caption mentioning the item, its price, and the platform. If nothing matches then it stops and asks the user to change their search instead.
 
 
 ---
@@ -59,24 +59,25 @@
 
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Filters the listings by size and price, scores what's left by keyword overlap with the description, and returns the best matches.
+- **Inputs:** `description` (`str`), `size` (`str` or `None`, default `None` = no size filter), `max_price` (`float` or `None`, inclusive — a listing priced exactly at `max_price` is kept; default `None` = no price filter; `0` is a real limit, not "no filter")
+- **Size match:** case-insensitive, by whole size rather than substring. A listing's size is split on `/` and spaces, with notes in brackets dropped. It matches when it covers every size asked for. So `M` matches `M`, `S/M` and `M/L`; `W30` matches `W30 L30`; a bare number like `8.5` means `US 8.5`. But `S` never matches `US 9`, and `L` never matches `XL`.
+- **Returns:** every listing that matches at least one query keyword (score ≥ 1), sorted by score descending, and on a tie, listings in a size written inside `description` (e.g. "graphic tee size M") come first; that size only reorders results, it doesn't filter them. At most 10. Score = one point per distinct query keyword found among the listing's words, where the listing's words are taken from `title`, `description` and `category` (lowercased, split on non-alphanumerics) plus each entry of `style_tags` and `colors`; stop words (filler like "the", "with", request words like "looking", and price/size words like "under", "size") are dropped from both sides first. The fields of the dict includes: `id`, `title`, `description`, `category`, `style_tags`, `size`, `condition`, `price`, `colors`, `brand`, and `platform`
+- **When it has nothing:** `[]` when the size or price filter leaves no listings, or when no remaining listing matches any keyword after stop words are removed (including an empty `description`), i.e, never `None`, never an exception.
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Takes a thrifted listing the user is considering and asks the model to style it into complete outfits. If the user has a wardrobe, it first strips each wardrobe item's `id` and any `None` `notes` (via `_clean_wardrobe()`), then asks for looks built around the pieces the user already owns, choosing only the ones that suit the new item; if no wardrobe is given, it asks for general styling ideas instead.
+- **Inputs:** `new_item` (`dict`): one listing, with `title`, `description`, `category`, `style_tags`, `colors`, `size`, `price`, `brand`. `wardrobe` (`dict`): the user's wardrobe, with an `'items'` key holding a `list[dict]`, where each item has `id`, `name`, `category`, `colors`, `style_tags`, `notes`; the list may be empty, and `'items'` may be missing or `None`.
+- **Returns:** A non-empty `str` of outfit suggestions in plain language, usually two (sometimes three) labelled looks ("Look-1: …", "Look-2: …"). Each look names the new item, the pieces paired with it, and the overall vibe. When a wardrobe is given, the paired pieces come from that wardrobe and are referred to by name, never by ID; if the wardrobe can't complete an outfit (e.g. no shoes), the model fills the gap with general pieces.
+- **When it has nothing:** If the wardrobe is empty, missing, or `None`, it does not raise or return `""`; it returns general styling advice for the item, using pieces the user may not own. If the model's response is blank (`""`, whitespace only, or `None`), it returns `"Couldn't generate an outfit suggestion — try again."`. It always returns a non-empty string, so the loop never needs to check for an empty result.
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Turns the chosen listing and its outfit suggestion into a short social-media caption, written as the buyer showing off their thrift find. Before calling the model it formats the price (`$75`, `$12.5`), strips the "Look-N:" labels from the outfit, and adds the brand only when the listing has one; a randomly chosen opening style keeps captions from starting the same way.
+- **Inputs:** `outfit` (`str`): the suggestion text from `suggest_outfit()`. `new_item` (`dict`): the listing, using `title`, `category`, `colors`, `style_tags`, `price`, `platform`, `description`, and `brand` (may be `None`).
+- **Returns:** A `str` caption of 2–4 sentences, under 80 words, on a single line. It names the item naturally rather than by its listing title, mentions the price (as `$` digits) and platform exactly once each but not in the first sentence, mentions the brand once only if there is one, and describes at most two looks from the outfit.
+- **When it has nothing:** If `outfit` is empty, whitespace-only, or `suggest_outfit()`'s fallback message, it returns `"No outfit suggestion provided (The model FAILED to generate an outfit suggestion) — try again."` without calling the model. If the model's reply is blank, it returns `"Couldn't generate a caption — try again."`. It never returns `""` or `None`.
 
 ---
 
@@ -93,7 +94,7 @@
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, put a message in `session["error"]` that names what the user could change (loosen or drop the size, raise the price ceiling, or use broader words), leave `selected_item`, `outfit_suggestion` and `fit_card` as `None`, and stop without calling `suggest_outfit`. Otherwise, take the first result as `session["selected_item"]`, pass it to `suggest_outfit`, store the result in `session["outfit_suggestion"]`, then pass both to `create_fit_card` and store its caption in `session["fit_card"]`.
 
 **Where it lives:** `agent.py::run_agent`
 

@@ -69,20 +69,52 @@ mcp = FastMCP("fitfindr", log_level="WARNING")
 
 # ── TODO: uncomment and fill this in ──────────────────────────────────────────
 #
-# @mcp.tool()
-# def search_listings(
-#     description: str,
-#     size: str | None = None,
-#     max_price: float | None = None,
-# ) -> list[dict]:
-#     """
-#     <-- YOUR DESCRIPTION GOES HERE.
-#
-#         One or two sentences. What does this tool do, what does it need, and
-#         what does it give back when it finds nothing? Written for a reader
-#         who cannot see the code.
-#     """
-#     return _search_listings_impl(description, size, max_price)
+@mcp.tool()
+def search_listings(
+    description: str,
+    size: str | None = None,
+    max_price: float | None = None,
+) -> list[dict]:
+    """
+    Search 40 second-hand clothing listings from Depop, Poshmark and thredUP for items matching the user's keywords. Listings are tops, bottoms, outerwear, shoes and accessories.
+
+    **Input:**
+    * `description` (string, required): Keywords describing the desired item, e.g. "vintage graphic tee". Keywords are matched against each listing's title, description, category, style tags and colors. The `brand` field is not searched, though a brand that appears in the title still matches. A size written inside `description` (e.g. "tee size M") does not filter results; it only moves listings in that size ahead when scores tie.
+
+    * `size` (string, optional): Keep only listings in this size. Matching is case-insensitive and by whole size, not substring: `"M"` matches `"M"`, `"S/M"` and `"M/L"`; `"W30"` matches `"W30 L30"`; a bare number such as `"8.5"` means US shoe size `"US 8.5"`. `"L"` does not match `"XL"`, and `"S"` does not match `"US 9"`. Omit or set to `null` for no size filter.
+
+    * `max_price` (number, optional): Maximum listing price in US dollars, inclusive, so a listing priced exactly at `max_price` is kept. `0` is a real limit, not "no filter". Omit or set to `null` for no price filter.
+
+
+    **Matching and filtering:**
+    1. Apply the `size` filter and the `max_price` filter, each only when provided.
+    2. Drop filler words (e.g. "the", "with", "looking", "under") from `description` and from each listing.
+    3. Score each remaining listing by how many distinct keywords from `description` it contains.
+    4. Keep every listing that shares at least one keyword (score of 1 or more).
+    5. Sort by score, highest first; on a tie, listings in a size written inside `description` come first.
+    6. Return at most 10.
+
+
+    **Output:**
+    A list of up to 10 listing objects, most keyword matches first. Each object has:
+
+    * `id` (string)
+    * `title` (string)
+    * `description` (string)
+    * `category` (string: tops, bottoms, outerwear, shoes or accessories)
+    * `style_tags` (list of strings)
+    * `size` (string, e.g. "M", "S/M", "W30 L30", "US 8.5", "One Size")
+    * `condition` (string)
+    * `price` (number, US dollars)
+    * `colors` (list of strings)
+    * `brand` (string or `null`; most listings have no brand)
+    * `platform` (string: depop, poshmark or thredUp)
+
+
+    **When nothing matches:**
+    Returns an empty list `[]` when the size or price filter leaves no listings, or when no remaining listing shares a keyword with `description`. Never returns `null` and never raises an error.
+    """
+    return _search_listings_impl(description, size, max_price)
 #
 # ──────────────────────────────────────────────────────────────────────────────
 #

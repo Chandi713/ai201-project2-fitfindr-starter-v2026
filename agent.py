@@ -191,6 +191,7 @@ def run_agent(query: str, wardrobe: dict) -> dict:
       • A handler for ModelUnavailable, so a bad key produces a message rather
         than a stack trace. The import is already at the top of this file.
     """
+    import mcp_client
     session = new_session(query, wardrobe)
     steps = 0
 
@@ -203,12 +204,16 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     steps += 1
     trace.check_iterations(steps)
     parsed = session["parsed"]
-    session["search_results"] = search_listings(
-        parsed["description"],
-        size=parsed["size"],
-        max_price=parsed["max_price"],
-    )
-
+    # session["search_results"] = search_listings(
+    #     parsed["description"],
+    #     size=parsed["size"],
+    #     max_price=parsed["max_price"],
+    # )
+    session["search_results"] = mcp_client.call_tool("search_listings", {
+        "description": parsed["description"],
+        "size": parsed["size"],
+        "max_price": parsed["max_price"],
+    })
     # THE BRANCH — nothing found: say what to change and stop before suggest_outfit
     if not session["search_results"]:
         session["error"] = _no_results_message(parsed)

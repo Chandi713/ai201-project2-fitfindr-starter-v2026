@@ -339,13 +339,39 @@ that produced it:
 **Happy path**
 
 ```
-
+$ python app.py ask 'vintage graphic tee under $30' --trace
+[1] parse_request
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+[3] select_item
+      in:  10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      out: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      →    first result
+[4] suggest_outfit
+      in:  item lst_002: Y2K Baby Tee — Butterfly Print; wardrobe: 10 items
+      out: Look-1: The Y2K baby tee with the butterfly print paired with the baggy straight-leg dark wash jeans, chunky w…
+[5] create_fit_card
+      in:  item lst_002: Y2K Baby Tee — Butterfly Print; outfit: Look-1: The Y2K baby tee with the butterfly print paired…
+      out: Rummaging through a chaotic pile of vintage tees paid off when I spotted these pastel purple and pink wings. I…
 ```
 
 **Empty search**
 
 ```
-
+$ python app.py ask 'Roadside Romeo' --trace
+[1] parse_request
+      in:  Roadside Romeo
+      out: {'description': 'roadside romeo', 'size': None, 'max_price': None}
+[2] search_listings (via MCP)
+      in:  {'description': 'roadside romeo', 'size': None, 'max_price': None}
+      out: [] (empty)
+[3] branch: no results
+      in:  {'description': 'roadside romeo', 'size': None, 'max_price': None}
+      out: No listings matched "roadside romeo". To find something, try:   • use fewer or more general words, e.g. the ty…
+      →    search empty, stopping before suggest_outfit
 ```
 
 **On the MCP move:** <!-- what changed in your code, and whether anything

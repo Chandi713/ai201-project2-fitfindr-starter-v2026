@@ -494,26 +494,57 @@ full. -->
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** One rule in the `tools.py::create_fit_card` prompt, and nothing else (no other prompt, tool, branch or scenario changed). The naming rule was:
 
-**Which failure it was meant to fix:**
+```
+- Call the item by a natural name (e.g. "this cream linen blazer"), never the listing title word for word.
+```
+
+I replaced it with:
+
+```
+- Call the item by a natural name that keeps what it is: its type and its defining feature from the item name, category and style (e.g. "this cream linen blazer", "these black platform Mary Janes"), never the listing title word for word, and never a different kind of item.
+- Every detail you state about the item itself (its type, colour, material, features or condition) must match the item details or the description. You can tell a story around it, but don't change what the item is.
+```
+
+The first line keeps the "natural name" idea but anchors it to what the item is. The second makes the listing's facts binding for the item itself, while still allowing the buyer stories the opening styles are designed for.
+
+**Which failure it was meant to fix:** The gap my diagnosis found behind criterion 3: the right item reaches the model, but the model describes it wrongly. In the before-run, the correct item (lst_009, Platform Mary Janes, "1.5 inch platform") reached `create_fit_card`, and `suggest_outfit` had named it correctly ("The Demonia Platform Mary Janes…"), yet the caption called them "patent flats". The mechanism was the old naming rule: it told the model to rename the item but not to keep what it is, so across the 5 Mary Janes cards the name drifted to "patent shoes", "patent flats", "chunky shoes", "platform Mary Janes" and "platforms" — only 2 of 5 kept the item's type, and one turned into a different kind of shoe. I changed `create_fit_card` only, because that is where the error happened; changing `suggest_outfit` too would have been a second change with no failure behind it.
 
 ### Run Log — After
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. The item search found is the item the next two tools receive | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Each fit card is a postable caption, and no two start the same way | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. A non-empty wardrobe is actually used in the outfit suggestion | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+
+Produced by `run_eval.py::main` → `results/run_2026-10-11_0721_after.md`: the same 9 scenarios and 2 diagnostics as the before-run, 5 tries each, caching off, 90 model calls, no errors. Scored with the same rules as the before-run.
 
 **Did it help, and how do I know:**
 
 <!-- If it made things worse, say that. Honestly reported, that earns full
      credit and is more interesting than one that worked. -->
 
+Yes, for the failure it targeted, and it broke nothing that passed before.
 
+No criterion scores whether a caption describes its item correctly, so I measured that directly, the same way on both runs: I read every caption against its listing's title, colours, style tags and description, and counted any card that states something about the item that contradicts them. Buyer stories don't count, since the prompt allows them.
+
+| Measure | Before | After |
+|---|---|---|
+| Criteria met (run log) | 5 of 5 | 5 of 5 |
+| Captions with a wrong fact about the item | 1 of 45 ("patent flats") | 0 of 45 |
+| Mary Janes captions that keep the item's type ("platform" / "Mary Janes") | 2 of 5 | 5 of 5 |
+| Criterion 4 cards meeting every rule | 24 of 25 | 25 of 25 |
+| Criterion 4 card length (words) | 49–81, average 60.8 | 45–70, average 60.9 |
+
+After the change, all 5 Mary Janes cards call them "Demonia (black patent) platform Mary Janes", and the other captions pull details straight from their listings ("padded shoulders", "unstructured brim", "creasing from age") while keeping their buyer stories ("the seller dropped the price", "a rainy Tuesday").
+
+How sure I am: the before-run had only one wrong card, so 0 of 45 afterwards is consistent with the fix working but can't prove it on its own. The stronger evidence is the Mary Janes naming going from 2 of 5 to 5 of 5 — the model now keeps the item's type every time, which is the mechanism the change was aimed at. The criterion 4 improvement (24 → 25 of 25, longest card 81 → 70 words) I don't credit to the change: the rule says nothing about length, and the average barely moved, so that is no worse, possibly by chance.
+
+One possible cost: 3 of the 5 Mary Janes cards now open on the same feature ("The ultra-glossy black patent finish…", "That glossy black patent finish is everything.", "The way that black patent leather catches the light…"). They come from different tries, so criterion 4's within-try uniqueness still passes, but anchoring the name to a "defining feature" may be pulling openings for the same item towards the same detail.
 
 ---
 

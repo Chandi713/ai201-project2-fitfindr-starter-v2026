@@ -387,7 +387,8 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     - Do NOT start with "Scored", "Found", "Snagged", "Just got", "Obsessed", or any "I got this for $X on..." opener.
     - Mention the price and the platform once each, but not in the first sentence.
     - Write the price exactly as {price}, in digits with the $ sign, never in words.{brand_rule}
-    - Call the item by a natural name (e.g. "this cream linen blazer"), never the listing title word for word.
+    - Call the item by a natural name that keeps what it is: its type and its defining feature from the item name, category and style (e.g. "this cream linen blazer", "these black platform Mary Janes"), never the listing title word for word, and never a different kind of item.
+    - Every detail you state about the item itself (its type, colour, material, features or condition) must match the item details or the description. You can tell a story around it, but don't change what the item is.
     - Describe at most two looks from the outfit, without labels like "Look-1".
     - Don't invent details about the item's history or past owners.
 

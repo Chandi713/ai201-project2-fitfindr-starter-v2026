@@ -400,15 +400,31 @@ Look-2: The 90s Silk Slip Dress worn on its own with the vintage black denim jac
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | A matching query completes all three tools | 4 of 5 | MET (5/5) | All 5 tries had `stopped early: no` and a real caption in `fit_card`, not the fallback message from `create_fit_card`. |
+| 2 | An impossible query stops before the second tool | 5 of 5 | MET (5/5) | All 5 traces end at `branch: no results` with no `suggest_outfit` step, and `session["error"]` names all three things to change (size XXS, price $5, wording). |
+| 3 | The item search found is the item the next two tools receive | 5 of 5 | MET (5/5) | In all 5 traces, `selected_item` is lst_022, and steps 4 and 5 both show `item lst_022` (the recorded `outfit_input_id` and `fit_card_input_id`). |
+| 4 | Each fit card is a postable caption, and no two start the same way | 4 of 5 | MET (5/5) | Rule fixed before the run: try k = the 5 cards from try k of the 5 items. It passes if at least 4 cards have the price once as `$` digits, the platform once, and 2–4 sentences under 80 words, and all 5 first sentences differ. 24 of 25 cards passed. The one failure (chelsea boots, try 2, 81 words) left that try at 4/5, which still passes. Every try had 5 different openings. |
+| 5 | A non-empty wardrobe is actually used in the outfit suggestion | 5 of 5 | MET (5/5) | Every outfit names at least one wardrobe piece exactly ("oversized grey crewneck sweatshirt", "black combat boots", "vintage black denim jacket"), using a deliberately hard item: a feminine floral slip dress against a streetwear wardrobe. |
 
 **Diagnoses**
 
+**No criterion missed.** All five met their targets on the before-run.
 
+**The one card that failed (criterion 4, chelsea boots, try 2, 81 words).** It didn't cost the criterion, but it's the only place the model broke a rule I measure. The step is the model's output in `tools.py::create_fit_card`. My criterion's limit is 80 words, and to keep the model under it I deliberately ask for less in the prompt: "60-70 words in total", a 10-word buffer that leaves room for the model's natural variation in length. The buffer worked: across the 25 criterion-4 cards, lengths ranged from 49 to 81 words with an average of 60.8, and 24 of 25 stayed under 80; only this card went past, by 1 word. It ran long because it used all four allowed sentences, and two of them each list three pieces from a full look. Its story opening ("My toes barely survived the scuffing drama until a quick brush-up…") isn't invented: it comes from the listing's own description, "Some scuffing on the toe — can be brushed out with suede cleaner."
+
+**The size-only query.** My criterion 1 reason predicted that a vague query like "size M" would miss. The diagnostic run confirms it returns `[]` in all 5 tries: `_parse_query` takes the size out of the description, nothing is left to match, and search needs at least one item word by design. It is handled, not broken. The branch stops before `suggest_outfit` and `_no_results_message` tells the user to add the item ("tee size M").
+
+**Were my targets low?** Only criterion 3's.
+- **Criteria 1 and 2** check that the flow never breaks: a matching query gets into and out of all three tools, and a query with no match ends with a message rather than an exception or a dead end.
+- **Criterion 4** tests the model's output directly, and strictly. A card passes only if it follows every format rule at once: the price once as `$` digits, the platform once, and 2–4 sentences under 80 words. Passing shows the output is controlled to come out as intended rather than vague, unstructured or off-context. Those rules also make sure each card carries the details a buyer needs: what the item is (by a natural name), what it costs and where to buy it, so nothing is left to assumption or doubt. The unique-opening condition makes sure the five cards don't read like one template with the item details swapped, which would be repetitive and boring and work against the point of a caption. A different opening, story and style each time is what keeps the content engaging. 24 of 25 cards met every rule, and every try had five different openings.
+- **Criterion 5** checks the feature the wardrobe exists for. If a user provides a wardrobe and none of their pieces show up in the suggestion, there was no point providing it. Using at least one piece they own shows them how something already in their closet pairs with the new item and how to style it. Seeing that also makes the item more tempting to buy, which supports sales. An empty wardrobe is already handled by a separate path that gives general styling advice, so this criterion only has to cover the non-empty case, and it held 5 of 5 on a deliberately hard item.
+- **Criterion 3** is different. It runs no model, so it can only fail through a code bug, and in practice it was always going to pass 5 of 5. It did earn its place this unit (moving `search_listings` onto MCP changed how results reach `run_agent`, and criterion 3 confirmed the hand-off still carried the same item), but it doesn't test anything that could plausibly fail.
+
+**The criterion I'd tighten: criterion 3.** As written, it checks that my code passes the same item along. A stronger version would check that the model actually describes the item it received, instead of saying something that isn't true of it:
+
+> "Given a query that returns a listing, the id stays the same across all three steps **and** the outfit suggestion and fit card describe that item correctly — the same type of piece and its main colour, with no wrong facts about it — in 5 of 5 tries."
+
+My before-run already contains a case that would fail it. In criterion 4, mary janes try 2, the correct item (lst_009, Platform Mary Janes, "1.5 inch platform") reached `create_fit_card`, but the caption called them "patent flats". The hand-off was right and the description was wrong, and the current criterion 3 can't see that.
 
 ---
 

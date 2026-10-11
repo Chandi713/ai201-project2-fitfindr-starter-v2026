@@ -35,18 +35,67 @@ SCENARIOS = [
         "wardrobe": "empty",
         "criterion": None,
     },
-    # TODO: add what your criteria 3, 4 and 5 need.
-    #
-    # Set "criterion" to the number in criteria.md that the scenario tests.
-    # "criterion": None means a diagnostic run — useful to have, but it isn't
-    # one of your five, and run_eval.py marks it as such in the table.
-    #
-    # For a state criterion, any normal query works — what you're checking is
-    # what ends up in the session, not what the user typed.
-    #
-    # For a fit-card criterion, you probably want the SAME query listed more
-    # than once, or several different items, depending on what your criterion
-    # actually says.
+    {
+        # A normal query. Criterion 3 — the same id in selected_item,
+        # outfit_input_id and fit_card_input_id.
+        "name": "item id carried through",
+        "query": "black leather jacket under $80",
+        "wardrobe": "example",
+        "criterion": 3,
+    },
+    {
+        # Five different items, one per scenario. Criterion 4 — price and
+        # platform once each, 2–4 sentences under 80 words, unique openings.
+        "name": "fit card: levi's jeans",
+        "query": "vintage levis jeans",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        # No brand on this listing.
+        "name": "fit card: chelsea boots",
+        "query": "suede chelsea boots",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        # No brand on this listing.
+        "name": "fit card: velvet blazer",
+        "query": "velvet blazer",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        "name": "fit card: mary janes",
+        "query": "platform mary janes",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        # No brand on this listing.
+        "name": "fit card: reversible bucket hat",
+        "query": "reversible bucket hat",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        # A non-empty wardrobe. Criterion 5 — at least one owned piece is
+        # named in the outfit suggestion. A feminine floral dress against a
+        # streetwear wardrobe, so the model is tempted to style it with
+        # pieces the user doesn't own.
+        "name": "wardrobe used in outfit",
+        "query": "floral silk slip dress",
+        "wardrobe": "example",
+        "criterion": 5,
+    },
+    {
+        # Only a size, no item words. The weak point criterion 1's reason
+        # predicted: the size is taken out and no keywords are left.
+        "name": "size-only query",
+        "query": "size M",
+        "wardrobe": "example",
+        "criterion": None,
+    },
 ]
 
 WARDROBES = ("example", "empty")

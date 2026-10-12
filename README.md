@@ -257,6 +257,18 @@ No outfit suggestion provided (The model FAILED to generate an outfit suggestion
 - *What came back:* Text that kept blending Claude's own logic into my reasoning, so several criteria reasons no longer said what I meant. For example, for criterion 5 it justified the 5 of 5 target by claiming the wardrobe had "basics that go with almost anything", when my point was that any wardrobe should work; I removed that. It also rearranged the README's default structure.
 - *What I changed:* For some statements I explained my point again so Claude could correct them; for others I had it use my wording exactly; and the rest I wrote out myself, step by step, so they conveyed my understanding precisely. I also rewrote the reason for criterion 5's 5 of 5 target. Claude had defended 5 of 5 as a "deliberately low bar" and floated 4 of 5 to match my other model-based criteria; I explained that 5 of 5 is required, not lenient, because suggesting outfits from the user's own wardrobe is the feature's promise, so a single miss means the feature isn't working. For the structure, I started again from a fresh copy of the README and told Claude not to change its structure at all, only to format my answers inside the existing sections.
 
+**Moment 3: checking my MCP tool description against the code**
+
+- *What I asked for:* I wrote the description for `search_listings` in `mcp_server.py` myself, then asked Claude to cross-check every statement in it against the real `tools.py::search_listings` and my Tool Inventory.
+- *What came back:* Two statements in my description were wrong. I'd written that `max_price` of `0` means "no price filter" (in my code it's a real limit, and `max_price=0` returns `[]`), and that the tool returns `null` when nothing matches (it returns `[]`). It also flagged smaller gaps: which fields are matched, the missing `condition` field, and wording like "should not match" for behaviour that's certain.
+- *What I changed:* I fixed both errors and the gaps, then checked the published description with `python mcp_client.py`. Those two lines mattered most: another agent reading "0 means no filter" or "returns null" would call my tool wrongly or mishandle the empty case my loop depends on.
+
+**Moment 4: scoring criteria 4 and 5 from the before-run**
+
+- *What I asked for:* Criteria 4 and 5 can only be scored by reading the before-run output line by line: for criterion 4, checking each fit card's price, platform, sentence count and length, and that every caption opens differently; for criterion 5, checking that at least one item from the wardrobe I provided appears in each outfit. I asked Claude to go through the whole run and check both.
+- *What came back:* It scored every card by counting `$` amounts, platform mentions, sentences and words, and comparing first sentences: 24 of 25 cards passed, with one at 81 words (chelsea boots, try 2), and every try had five different openings. For criterion 5 it found an exact wardrobe piece in all 5 outfits. It scored from the results file rather than my terminal paste, because the paste had dropped characters.
+- *What I changed:* While reading the captions, Claude pointed out a factual inconsistency: one fit card called the Demonia platform Mary Janes "patent flats", even though the listing says "1.5 inch platform". To fix it, I updated the naming rule in the `create_fit_card` prompt so the model has to keep what the item factyually mentioned, then ran the full test again with the same scenarios, 5 tries each. Claude read all 45 new captions against their listings to check for false claims: none had a wrong fact about the item, and all 5 Mary Janes captions now called them "platform Mary Janes".
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
@@ -483,7 +495,7 @@ behaved differently afterwards. If the rewire didn't work, say exactly where it
 broke — the error text and the last thing that worked. That earns the point in
 full. -->
 
-
+`search_listings` is now registered in `mcp_server.py` with a published description and typed inputs (`description: str`, `size: str | None`, `max_price: float | None`), and `agent.py::run_agent` calls it through `mcp_client.call_tool("search_listings", {...})` instead of calling `tools.search_listings` directly. I also added an `MCPError` handler around that call, so if the server doesn't start, the agent says so and stops instead of crashing, and the trace labels the step `search_listings (via MCP)`. What came back did not change: on four comparison queries (including two that returned `[]` and one with `max_price=0`), the MCP result was identical to the direct call, still a `list` of dicts and still `[]` when nothing matched, and every criterion that depends on search passed in both runs. The one thing that behaved differently is speed: `mcp_client` starts the server for every call, so a search now takes about 0.58 s instead of about 0.6 ms. Over a run that's small next to the model calls, but it's a real cost of the seam.
 
 ---
 
@@ -553,6 +565,10 @@ One possible cost: 3 of the 5 Mary Janes cards now open on the same feature ("Th
 <!-- For each criterion still missed: what you'd do, and why you stopped where
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
+
+No criterion is missed after the improvement, so nothing here is a missed target. Here is the problem that's left, and why I stopped where I did.
+
+- **A possible cost of my fix: openings converge for the same item.** After the change, 3 of the 5 Mary Janes cards opened on the glossy patent finish. Criterion 4 only checks uniqueness within a try, so it can't see this. Next I'd check openings across tries for the same item, and if they keep converging, tell the model not to open the caption on the same feature it uses in the item's name. I didn't change it, because the convergence only shows up for the same item across tries: openings across different items weren't affected, since every try still had five different first sentences.
 
 
 
